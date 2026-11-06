@@ -1,0 +1,56 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv/
+
+# Environment variables / secrets
+.env
+
+# Index files (large binary)
+*.faiss
+*.pkl
+
+# Parsed document data
+parsed_texts/
+downloads_temp/
+document_index.faiss
+bm25_index.pkl
+query_logs.db
+chunks_data.pkl
+# Logs
+*.log
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# URLs cache
+parsed_urls.json
+
+# Legacy metadata (no longer used)
+document_metadata.json
+
+# Test artifacts
+test_screenshot.png
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Generated documents / exports
+generated_documents/
+exports/
+*.tmp
+
+# DB
+*.db

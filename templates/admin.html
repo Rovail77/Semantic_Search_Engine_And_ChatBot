@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Админ-панель — Логи и оценки</title>
+  <style>
+    :root {
+      --primary: #1a3a5c;
+      --accent: #c8a951;
+      --bg: #f4f6f9;
+      --card-bg: #fff;
+      --text: #333;
+      --text-muted: #888;
+      --border: #dde;
+      --green: #4a8;
+      --red: #c44;
+      --orange: #e90;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', 'Inter', sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh;
+    }
+    .header {
+      background: var(--primary); color: #fff; padding: 14px 24px;
+      display: flex; align-items: center; gap: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.15);
+    }
+    .header h1 { font-size: 18px; font-weight: 600; }
+    .header a { color: var(--accent); text-decoration: none; font-size: 13px; margin-left: auto; }
+    .header a:hover { text-decoration: underline; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+    .stats-row {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px; margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px;
+      padding: 16px; text-align: center;
+    }
+    .stat-card .stat-value { font-size: 28px; font-weight: 700; color: var(--primary); }
+    .stat-card .stat-label { font-size: 12px; color: var(--text-muted); margin-top: 4px;
+                             text-transform: uppercase; letter-spacing: .5px; }
+    .stat-card.accent .stat-value { color: var(--accent); }
+    .stat-card.green .stat-value { color: var(--green); }
+
+    .section-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; color: var(--primary); }
+
+    table {
+      width: 100%; border-collapse: collapse; background: var(--card-bg);
+      border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+      font-size: 13px;
+    }
+    th {
+      background: var(--primary); color: #fff; padding: 10px 12px;
+      text-align: left; font-weight: 600; font-size: 12px;
+      text-transform: uppercase; letter-spacing: .3px;
+    }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f0f4f8; }
+
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 10px;
+      font-size: 11px; font-weight: 600;
+    }
+    .badge-success { background: #e0f5e8; color: var(--green); }
+    .badge-no_results { background: #fff3e0; color: var(--orange); }
+    .badge-error_api { background: #fde8e8; color: var(--red); }
+
+    .stars { color: var(--accent); letter-spacing: 1px; }
+    .no-rating { color: var(--text-muted); font-style: italic; }
+
+    .comment { max-width: 250px; white-space: pre-wrap; font-size: 12px; color: #555; }
+
+    .pagination {
+      display: flex; gap: 8px; align-items: center; justify-content: center;
+      margin-top: 16px;
+    }
+    .pagination button {
+      padding: 6px 14px; font-size: 13px; background: var(--primary);
+      color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;
+    }
+    .pagination button:disabled { opacity: .4; cursor: not-allowed; }
+    .pagination span { font-size: 13px; color: var(--text-muted); }
+
+    .query-text { max-width: 200px; overflow: hidden; text-overflow: ellipsis;
+                  white-space: nowrap; }
+    .reform-text { max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+                   white-space: nowrap; font-size: 12px; color: var(--text-muted); }
+
+    @media (max-width: 768px) {
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      table { font-size: 11px; }
+      th, td { padding: 6px 8px; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Админ-панель</h1>
+  <a href="/">Назад к чату</a>
+</div>
+
+<div class="container">
+  <div class="stats-row" id="statsRow"></div>
+  <div class="section-title">Логи запросов и оценки</div>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Время</th>
+        <th>Запрос</th>
+        <th>Переформулировки</th>
+        <th>Результаты</th>
+        <th>Latency</th>
+        <th>Статус</th>
+        <th>Переформ. ★</th>
+        <th>Релевант. ★</th>
+        <th>Комментарий</th>
+      </tr>
+    </thead>
+    <tbody id="logsBody"></tbody>
+  </table>
+  <div class="pagination" id="pagination"></div>
+</div>
+
+<script>
+const API = '';
+let currentPage = 0;
+const PAGE_SIZE = 50;
+
+function esc(s) {
+  if (s == null) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
+
+function starsHtml(val) {
+  if (val == null) return '<span class="no-rating">—</span>';
+  let s = '';
+  for (let i = 1; i <= 5; i++) {
+    s += i <= val ? '&#9733;' : '&#9734;';
+  }
+  return '<span class="stars">' + s + '</span>';
+}
+
+function statusBadge(status) {
+  const labels = { success: 'OK', no_results: 'Нет результатов', error_api: 'Ошибка API' };
+  return '<span class="badge badge-' + status + '">' + (labels[status] || status) + '</span>';
+}
+
+function formatTime(iso) {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  } catch { return iso; }
+}
+
+function renderStats(data) {
+  const row = document.getElementById('statsRow');
+  const cards = [
+    { label: 'Всего запросов', value: data.total_queries, cls: '' },
+    { label: 'Success rate', value: data.success_rate + '%', cls: 'green' },
+    { label: 'Нет результатов', value: data.no_results_count, cls: '' },
+    { label: 'Всего оценок', value: data.total_feedback, cls: 'accent' },
+    { label: 'Ср. качество переформ.', value: data.avg_reformulation_quality, cls: 'accent' },
+    { label: 'Ср. релевантность', value: data.avg_relevance_rating, cls: 'accent' },
+    { label: 'Ср. latency (мс)', value: data.avg_total_latency_ms, cls: '' },
+  ];
+  row.innerHTML = cards.map(c =>
+    '<div class="stat-card ' + c.cls + '">' +
+    '<div class="stat-value">' + esc(c.value) + '</div>' +
+    '<div class="stat-label">' + esc(c.label) + '</div></div>'
+  ).join('');
+}
+
+function renderLogs(logs) {
+  const body = document.getElementById('logsBody');
+  body.innerHTML = logs.map(log => {
+    const reformQ = log.reformulated_queries
+      ? (Array.isArray(log.reformulated_queries) ? log.reformulated_queries : [log.reformulated_queries])
+      : [];
+    const reformStr = reformQ.join('; ');
+    const comment = log.feedback_comment || null;
+    const latency = log.total_latency_ms
+      ? log.total_latency_ms + ' мс'
+        + (log.reformulation_latency_ms ? ' (реф: ' + log.reformulation_latency_ms + ', поиск: ' + (log.search_latency_ms || '?') + ')' : '')
+      : '—';
+
+    return '<tr>' +
+      '<td>' + esc(log.id) + '</td>' +
+      '<td>' + formatTime(log.created_at) + '</td>' +
+      '<td class="query-text" title="' + esc(log.query_text) + '">' + esc(log.query_text) + '</td>' +
+      '<td class="reform-text" title="' + esc(reformStr) + '">' + esc(reformStr) + '</td>' +
+      '<td>' + esc(log.results_count) + '</td>' +
+      '<td>' + esc(latency) + '</td>' +
+      '<td>' + statusBadge(log.status) + '</td>' +
+      '<td>' + starsHtml(log.reformulation_quality) + '</td>' +
+      '<td>' + starsHtml(log.relevance_rating) + '</td>' +
+      '<td class="comment">' + esc(comment) + '</td>' +
+      '</tr>';
+  }).join('');
+}
+
+function renderPagination(totalLogs) {
+  const div = document.getElementById('pagination');
+  const totalPages = Math.ceil(totalLogs / PAGE_SIZE);
+  if (totalPages <= 1) { div.innerHTML = ''; return; }
+
+  const prevDisabled = currentPage === 0;
+  const nextDisabled = currentPage >= totalPages - 1;
+
+  div.innerHTML =
+    '<button onclick="goPage(' + (currentPage - 1) + ')"' + (prevDisabled ? ' disabled' : '') + '>← Назад</button>' +
+    '<span>Стр. ' + (currentPage + 1) + ' из ' + totalPages + '</span>' +
+    '<button onclick="goPage(' + (currentPage + 1) + ')"' + (nextDisabled ? ' disabled' : '') + '>Вперёд →</button>';
+}
+
+function goPage(p) {
+  currentPage = p;
+  loadPage();
+}
+
+async function loadPage() {
+  try {
+    const [logsResp, statsResp] = await Promise.all([
+      fetch(API + '/api/logs?limit=' + PAGE_SIZE + '&offset=' + (currentPage * PAGE_SIZE)),
+      fetch(API + '/api/log-stats')
+    ]);
+    const logs = await logsResp.json();
+    const stats = await statsResp.json();
+
+    renderStats(stats);
+    renderLogs(logs);
+
+    const totalLogs = stats.total_queries;
+    renderPagination(totalLogs);
+  } catch (e) {
+    document.getElementById('logsBody').innerHTML =
+      '<tr><td colspan="10" style="text-align:center;color:var(--red)">Ошибка загрузки данных</td></tr>';
+  }
+}
+
+loadPage();
+</script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+[project]
+name = "kursovayarabotav2"
+version = "5.0.0"
+description = "Семантический поиск и чат-бот судебных прецедентов для Института Права"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "apscheduler>=3.11.2",
+    "beautifulsoup4>=4.14.3",
+    "faiss-cpu>=1.13.2",
+    "fastapi>=0.135.1",
+    "langchain-text-splitters>=1.1.1",
+    "lxml>=6.0.2",
+    "numpy>=2.4.3",
+    "ollama>=0.4.8",
+    "openai>=1.60.0",
+    "pydantic>=2.12.5",
+    "python-docx>=1.1.2",
+    "python-dotenv>=1.2.2",
+    "rank-bm25>=0.2.2",
+    "selenium>=4.41.0",
+    "sentence-transformers>=5.3.0",
+    "uvicorn[standard]>=0.41.0",
+    "Jinja2>=3.1.0",
+    "pytest>=9.0.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
