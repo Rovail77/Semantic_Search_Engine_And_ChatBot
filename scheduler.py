@@ -8,16 +8,17 @@
 import logging
 import subprocess
 import sys
+import threading
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from config import BASE_DIR, COLLECTION_INTERVAL_HOURS, RUN_PIPELINE_ON_START
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("scheduler")
 
 scheduler = BackgroundScheduler()
 _reload_callback = None
+_pipeline_lock = threading.Lock()
 
 
 def _run_script(script: str, timeout: int) -> bool:
@@ -47,22 +48,34 @@ def _run_script(script: str, timeout: int) -> bool:
 
 
 def _run_pipeline_subprocess():
-    if not _run_script("parser.py", timeout=3600):
+    # Защита от двух одновременных запусков (например, при ручном вызове
+    # и срабатывании расписания).
+    if not _pipeline_lock.acquire(blocking=False):
+        logger.warning("Pipeline already running, skip this run")
         return
-    if not _run_script("create_index.py", timeout=7200):
-        return
+    try:
+        if not _run_script("parser.py", timeout=3600):
+            return
+        if not _run_script("create_index.py", timeout=7200):
+            return
 
-    if _reload_callback:
-        try:
-            _reload_callback()
-            logger.info("Index reloaded in memory")
-        except Exception:
-            logger.exception("Reload error")
+        if _reload_callback:
+            try:
+                _reload_callback()
+                logger.info("Index reloaded in memory")
+            except Exception:
+                logger.exception("Reload error")
+    finally:
+        _pipeline_lock.release()
 
 
 def start_scheduler(reload_callback=None):
     global _reload_callback
     _reload_callback = reload_callback
+
+    if scheduler.running:
+        logger.info("Scheduler already running")
+        return
 
     if RUN_PIPELINE_ON_START:
         scheduler.add_job(

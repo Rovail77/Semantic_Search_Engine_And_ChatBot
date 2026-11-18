@@ -41,6 +41,9 @@ def _env_float(name: str, default: float) -> float:
 
 # ─────────────── Источник данных и парсер ─────────────────
 EDGE_DRIVER_PATH = os.getenv("EDGE_DRIVER_PATH", r"C:\edgedriver\msedgedriver.exe")
+# edge (Windows) или chrome/chromium (Linux-сервер)
+PARSER_BROWSER = os.getenv("PARSER_BROWSER", "edge").strip().lower()
+CHROME_DRIVER_PATH = os.getenv("CHROME_DRIVER_PATH", "")
 MAIN_URL = os.getenv(
     "MAIN_URL",
     "https://sudact.ru/practice/sudebnaya-praktika-po-grazhdanskim-delam/",
@@ -90,6 +93,8 @@ LLM_MAX_RETRIES = _env_int("LLM_MAX_RETRIES", 1)
 # ─────────────── Чат и планировщик ────────────────────────
 CHAT_SESSION_TTL_SECONDS = _env_int("CHAT_SESSION_TTL_SECONDS", 1800)
 CHAT_MAX_HISTORY_MESSAGES = _env_int("CHAT_MAX_HISTORY_MESSAGES", 20)
+CHAT_MAX_SESSIONS = _env_int("CHAT_MAX_SESSIONS", 2000)
+CHAT_CLEANUP_INTERVAL_SECONDS = _env_int("CHAT_CLEANUP_INTERVAL_SECONDS", 60)
 
 COLLECTION_INTERVAL_HOURS = _env_int("COLLECTION_INTERVAL_HOURS", 24)
 RUN_PIPELINE_ON_START = _env_bool("RUN_PIPELINE_ON_START", False)
@@ -104,5 +109,26 @@ CORS_ORIGINS = [
     for origin in os.getenv("CORS_ORIGINS", "http://localhost:8000").split(",")
     if origin.strip()
 ]
+
+# ─────────────── Безопасность и лимиты ────────────────────
+# Если ADMIN_TOKEN пуст, административные эндпоинты открыты (режим разработки).
+# На сервере обязательно задайте длинный случайный токен.
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
+RATE_LIMIT_PER_MINUTE = _env_int("RATE_LIMIT_PER_MINUTE", 60)
+RATE_LIMIT_CHAT_PER_MINUTE = _env_int("RATE_LIMIT_CHAT_PER_MINUTE", 15)
+MAX_REQUEST_BYTES = _env_int("MAX_REQUEST_BYTES", 1_000_000)
+SECURITY_HEADERS = _env_bool("SECURITY_HEADERS", True)
+TRUST_PROXY = _env_bool("TRUST_PROXY", False)
+
+# ─────────────── Кэши и производительность ────────────────
+QUERY_CACHE_SIZE = _env_int("QUERY_CACHE_SIZE", 256)
+DOCUMENT_CACHE_SIZE = _env_int("DOCUMENT_CACHE_SIZE", 128)
+LLM_MAX_CONCURRENCY = _env_int("LLM_MAX_CONCURRENCY", 2)
+
+# ─────────────── Хранилище документов ─────────────────────
+DOCUMENTS_ENABLED = _env_bool("DOCUMENTS_ENABLED", False)
+DOCUMENTS_DIR = _env_path("DOCUMENTS_DIR", BASE_DIR / "stored_documents")
+DOCUMENTS_MAX_MB = _env_int("DOCUMENTS_MAX_MB", 10)
+DOCUMENTS_RETENTION_DAYS = _env_int("DOCUMENTS_RETENTION_DAYS", 90)
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)

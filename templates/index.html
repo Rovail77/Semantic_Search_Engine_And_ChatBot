@@ -7,62 +7,141 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚖</text></svg>">
   <style>
     :root {
-      --primary: #1a3a5c;
+      --primary: #16324f;
       --primary-light: #24527a;
       --accent: #c8a951;
-      --bg: #f4f6f9;
+      --accent-soft: #f3e9c9;
+      --bg: #eef2f6;
       --card-bg: #ffffff;
-      --text: #333;
-      --text-muted: #888;
-      --border: #dde;
-      --chat-user: #e8f0fe;
-      --chat-bot: #f0f4f0;
-      --red: #c44;
+      --text: #26313d;
+      --text-muted: #7c8894;
+      --border: #dce3ea;
+      --chat-user: #e7effa;
+      --chat-bot: #f6f8f5;
+      --red: #b83b3b;
+      --green: #2f7d63;
+      --shadow-sm: 0 1px 2px rgba(16, 38, 59, .06), 0 2px 8px rgba(16, 38, 59, .05);
+      --shadow-md: 0 10px 30px rgba(16, 38, 59, .12);
+      --radius: 14px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
     body {
-      font-family: 'Segoe UI', 'Inter', sans-serif;
-      background: var(--bg); color: var(--text);
-      height: 100vh; display: flex; flex-direction: column;
+      font-family: 'Segoe UI', 'Inter', system-ui, sans-serif;
+      background:
+        radial-gradient(1100px 500px at 15% -10%, #dfe8f2 0%, transparent 60%),
+        radial-gradient(900px 420px at 95% 0%, #f6efd9 0%, transparent 55%),
+        var(--bg);
+      color: var(--text);
+      display: flex; flex-direction: column;
+      min-height: 100vh; min-height: 100dvh;
     }
+    button, textarea, input, select { font: inherit; }
+    :focus-visible { outline: 3px solid rgba(200, 169, 81, .55); outline-offset: 2px; }
 
     /* ── Header ── */
     .header {
-      background: var(--primary); color: #fff; padding: 14px 24px;
-      display: flex; align-items: center; gap: 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,.15);
+      background: linear-gradient(120deg, var(--primary) 0%, #1d4266 55%, #24527a 100%);
+      color: #fff; padding: 14px 28px;
+      display: flex; align-items: center; gap: 14px;
+      box-shadow: 0 3px 18px rgba(16, 38, 59, .22);
+      position: sticky; top: 0; z-index: 20;
     }
-    .header h1 { font-size: 18px; font-weight: 600; }
+    .header h1 { font-size: 18px; font-weight: 650; letter-spacing: .2px; }
     .header .badge {
       background: var(--accent); color: var(--primary);
-      font-size: 11px; padding: 2px 8px; border-radius: 10px; font-weight: 700;
+      font-size: 10px; padding: 3px 9px; border-radius: 999px;
+      font-weight: 800; letter-spacing: .6px;
     }
+    .header .brand { font-size: 13px; opacity: .72; margin-left: 2px; }
+    .header .spacer { flex: 1; }
+    .status-dot {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; color: rgba(255,255,255,.8); white-space: nowrap;
+    }
+    .status-dot::before {
+      content: ''; width: 8px; height: 8px; border-radius: 50%;
+      background: #8a97a3; box-shadow: 0 0 0 3px rgba(255,255,255,.08);
+    }
+    .status-dot.online::before { background: #58c99a; }
+    .status-dot.offline::before { background: #e08b7a; }
     .btn-doc {
-      margin-left: auto; padding: 7px 14px; font-size: 13px; font-weight: 600;
+      padding: 8px 16px; font-size: 13px; font-weight: 650;
       background: var(--accent); color: var(--primary); border: none;
-      border-radius: 8px; cursor: pointer;
+      border-radius: 10px; cursor: pointer;
+      box-shadow: 0 2px 0 rgba(0,0,0,.12);
+      transition: transform .12s ease, filter .12s ease;
     }
-    .btn-doc:hover { opacity: .88; }
-    .header .brand { font-size: 13px; opacity: .7; }
+    .btn-doc:hover { filter: brightness(1.05); transform: translateY(-1px); }
+    .btn-doc:active { transform: translateY(0); }
 
     /* ── Chat Area ── */
     .chat-area {
       flex: 1; display: flex; flex-direction: column; min-width: 0;
+      width: 100%; max-width: 1080px; margin: 0 auto;
     }
     .chat-messages {
-      flex: 1; overflow-y: auto; padding: 20px 24px;
+      flex: 1; overflow-y: auto; padding: 26px 24px 10px;
+      scroll-behavior: smooth;
     }
+    .chat-messages::-webkit-scrollbar { width: 10px; }
+    .chat-messages::-webkit-scrollbar-thumb {
+      background: #c7d2dc; border-radius: 8px; border: 2px solid transparent;
+      background-clip: padding-box;
+    }
+    .chat-messages::-webkit-scrollbar-thumb:hover { background: #aebcc9; background-clip: padding-box; }
     .msg {
-      margin-bottom: 16px; display: flex; flex-direction: column;
+      margin-bottom: 18px; display: flex; flex-direction: column;
+      animation: msg-in .22s ease both;
+    }
+    @keyframes msg-in {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: none; }
     }
     .msg-user { align-items: flex-end; }
     .msg-bot { align-items: flex-start; }
-    .msg-bubble {
-      max-width: 75%; padding: 12px 16px; border-radius: 12px;
-      font-size: 14px; line-height: 1.6; white-space: pre-wrap;
+    .msg-role {
+      font-size: 11px; font-weight: 700; letter-spacing: .5px;
+      text-transform: uppercase; color: var(--text-muted); margin: 0 6px 5px;
     }
-    .msg-user .msg-bubble { background: var(--chat-user); color: var(--primary); }
-    .msg-bot .msg-bubble { background: var(--chat-bot); color: var(--text); }
+    .msg-bubble {
+      max-width: 78%; padding: 13px 17px; border-radius: 16px;
+      font-size: 14px; line-height: 1.65; white-space: pre-wrap;
+      box-shadow: var(--shadow-sm);
+    }
+    .msg-user .msg-bubble {
+      background: linear-gradient(135deg, var(--chat-user), #dbe8f9);
+      color: var(--primary); border-bottom-right-radius: 5px;
+    }
+    .msg-bot .msg-bubble {
+      background: var(--card-bg); color: var(--text);
+      border: 1px solid var(--border); border-bottom-left-radius: 5px;
+    }
+    .welcome {
+      text-align: center; padding: 34px 16px 18px; max-width: 720px; margin: 0 auto;
+    }
+    .welcome-mark {
+      width: 54px; height: 54px; margin: 0 auto 14px; border-radius: 16px;
+      display: grid; place-items: center; font-size: 26px;
+      background: linear-gradient(135deg, #fff, #eef3f8);
+      border: 1px solid var(--border); box-shadow: var(--shadow-sm);
+    }
+    .welcome h2 { font-size: 22px; color: var(--primary); margin-bottom: 8px; letter-spacing: -.2px; }
+    .welcome p { font-size: 14px; color: #5d6b78; line-height: 1.6; }
+    .suggestions {
+      display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+      margin-top: 18px;
+    }
+    .suggestion {
+      border: 1px solid var(--border); background: rgba(255,255,255,.8);
+      color: var(--primary); border-radius: 999px; padding: 8px 14px;
+      font-size: 13px; cursor: pointer; transition: all .15s ease;
+      text-align: left;
+    }
+    .suggestion:hover {
+      border-color: var(--accent); background: #fff; transform: translateY(-1px);
+      box-shadow: var(--shadow-sm);
+    }
 
     /* Markdown inside bot replies */
     .msg-bubble.md { white-space: normal; }
@@ -99,51 +178,79 @@
     .results-section h4 { font-size: 12px; color: var(--text-muted); margin-bottom: 8px;
                           text-transform: uppercase; letter-spacing: .5px; }
     .result-card {
-      background: #fff; border: 1px solid var(--border); border-radius: 8px;
+      background: #fff; border: 1px solid var(--border); border-radius: 10px;
       padding: 12px 14px; margin-bottom: 8px; cursor: pointer;
-      transition: border-color .15s;
+      transition: border-color .15s, box-shadow .15s, transform .15s;
     }
-    .result-card:hover { border-color: var(--primary); }
+    .result-card:hover {
+      border-color: var(--accent); box-shadow: var(--shadow-sm);
+      transform: translateY(-1px);
+    }
     .result-card .rc-header {
-      display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+      margin-bottom: 4px;
     }
-    .result-card .rc-title { font-size: 13px; font-weight: 600; color: var(--primary); }
-    .result-card .rc-score { font-size: 11px; color: var(--accent); font-weight: 600; }
-    .result-card .rc-snippet { font-size: 12px; color: #555; line-height: 1.4; }
+    .result-card .rc-title {
+      font-size: 13px; font-weight: 650; color: var(--primary);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .result-card .rc-score {
+      font-size: 11px; color: #8a6d1f; font-weight: 700;
+      background: var(--accent-soft); padding: 2px 8px; border-radius: 999px;
+      flex-shrink: 0;
+    }
+    .result-card .rc-snippet { font-size: 12px; color: #56636f; line-height: 1.5; }
 
     /* ── Input Area ── */
     .chat-input-area {
-      padding: 12px 24px; background: var(--card-bg);
+      padding: 12px 24px 10px; background: rgba(255,255,255,.86);
       border-top: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+      position: sticky; bottom: 0;
     }
     .chat-input-row {
-      display: flex; gap: 8px; align-items: flex-end;
+      display: flex; gap: 10px; align-items: flex-end;
     }
     .chat-input-row textarea {
-      flex: 1; padding: 10px 14px; font-size: 14px; font-family: inherit;
-      border: 2px solid var(--border); border-radius: 10px; resize: none;
-      min-height: 44px; max-height: 120px; outline: none;
-      transition: border-color .15s;
+      flex: 1; min-width: 0; padding: 11px 15px; font-size: 14px; font-family: inherit;
+      border: 1.5px solid var(--border); border-radius: 12px; resize: none;
+      min-height: 46px; max-height: 140px; outline: none; background: #fff;
+      transition: border-color .15s, box-shadow .15s;
     }
-    .chat-input-row textarea:focus { border-color: var(--primary); }
+    .chat-input-row textarea:focus {
+      border-color: var(--primary-light);
+      box-shadow: 0 0 0 4px rgba(36, 82, 122, .08);
+    }
     .btn-send {
-      padding: 10px 20px; font-size: 14px; background: var(--primary);
-      color: #fff; border: none; border-radius: 10px; cursor: pointer;
-      font-weight: 600; transition: background .15s;
+      padding: 12px 24px; font-size: 14px; background: var(--primary);
+      color: #fff; border: none; border-radius: 12px; cursor: pointer;
+      font-weight: 650; transition: background .15s, transform .12s;
+      min-height: 46px;
     }
-    .btn-send:hover { background: var(--primary-light); }
-    .btn-send:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-send:hover { background: var(--primary-light); transform: translateY(-1px); }
+    .btn-send:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+    .input-note {
+      font-size: 11px; color: var(--text-muted); text-align: center;
+      margin-top: 7px; line-height: 1.4;
+    }
 
     /* ── Document Modal ── */
     .modal-overlay {
-      display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5);
-      z-index: 100; align-items: center; justify-content: center;
+      display: none; position: fixed; inset: 0;
+      background: rgba(16, 38, 59, .45); backdrop-filter: blur(4px);
+      z-index: 100; align-items: center; justify-content: center; padding: 18px;
     }
-    .modal-overlay.active { display: flex; }
+    .modal-overlay.active { display: flex; animation: fade-in .16s ease both; }
+    @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
     .modal {
-      background: #fff; width: 90%; max-width: 800px; max-height: 80vh;
-      border-radius: 12px; display: flex; flex-direction: column;
-      box-shadow: 0 8px 32px rgba(0,0,0,.2);
+      background: #fff; width: 90%; max-width: 800px; max-height: 84vh;
+      border-radius: var(--radius); display: flex; flex-direction: column;
+      box-shadow: var(--shadow-md); overflow: hidden;
+      animation: modal-in .2s ease both;
+    }
+    @keyframes modal-in {
+      from { opacity: 0; transform: translateY(10px) scale(.99); }
+      to { opacity: 1; transform: none; }
     }
     .modal-header {
       padding: 16px 20px; border-bottom: 1px solid var(--border);
@@ -267,10 +374,39 @@
 
     /* ── Responsive ── */
     @media (max-width: 768px) {
-      .msg-bubble { max-width: 90%; }
+      .header { padding: 12px 16px; gap: 10px; }
+      .header h1 { font-size: 16px; }
+      .header .brand, .header .status-dot { display: none; }
+      .chat-messages { padding: 18px 14px 8px; }
+      .msg-bubble { max-width: 92%; }
+      .chat-input-area { padding: 10px 14px 8px; }
       .form-grid { grid-template-columns: 1fr; }
-      .docgen-modal { width: 96%; }
-      .header .brand { display: none; }
+      .docgen-modal { width: 100%; max-height: 92vh; }
+      .modal { width: 100%; max-height: 92vh; }
+      .welcome { padding-top: 20px; }
+      .welcome h2 { font-size: 19px; }
+      .suggestions { gap: 6px; }
+      .suggestion { font-size: 12px; padding: 7px 11px; }
+    }
+    @media (max-width: 560px) {
+      .header { flex-wrap: wrap; padding: 10px 14px; gap: 8px; }
+      .header h1 { font-size: 15px; flex: 1; white-space: nowrap; }
+      .header .badge { display: none; }
+      .btn-doc { flex: 1 1 100%; margin-top: 2px; padding: 9px 12px; }
+      .suggestions { flex-direction: column; }
+      .suggestion { text-align: center; }
+    }
+    @media (max-width: 400px) {
+      .chat-input-row { flex-wrap: wrap; }
+      .chat-input-row textarea { flex: 1 1 100%; }
+      .btn-send { flex: 1 1 100%; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .01ms !important;
+        transition-duration: .01ms !important;
+        scroll-behavior: auto !important;
+      }
     }
   </style>
 </head>
@@ -279,22 +415,35 @@
 <div class="header">
   <h1>Юридический ассистент</h1>
   <span class="badge">AI</span>
-  <button class="btn-doc" onclick="openDocForm()">Сформировать заявление</button>
-  <span class="brand">Институт Права</span>
+  <span class="brand">Институт Права ЧелГУ</span>
+  <span class="spacer"></span>
+  <span class="status-dot" id="serverStatus" title="Состояние сервера">проверка…</span>
+  <button class="btn-doc" type="button" onclick="openDocForm()">Сформировать заявление</button>
 </div>
 
-<div class="main" style="flex:1;display:flex;flex-direction:column;">
+<div class="main" style="flex:1;display:flex;flex-direction:column;min-height:0;">
   <div class="chat-area">
-    <div class="chat-messages" id="chatMessages">
-      <div class="msg msg-bot">
-        <div class="msg-bubble">Здравствуйте! Опишите вашу жизненную ситуацию, и я найду подходящие судебные прецеденты с юридической формулировкой.</div>
+    <div class="chat-messages" id="chatMessages" role="log" aria-live="polite" aria-relevant="additions">
+      <div class="welcome" id="welcome">
+        <div class="welcome-mark" aria-hidden="true">⚖</div>
+        <h2>Опишите ситуацию простыми словами</h2>
+        <p>Найду похожие судебные решения, объясню подход судов и помогу подготовить черновик документа.</p>
+        <div class="suggestions">
+          <button class="suggestion" type="button" data-text="Сосед сверху затопил мою квартиру, отказывается возмещать ущерб">Залив квартиры соседом</button>
+          <button class="suggestion" type="button" data-text="Работодатель уволил меня без объяснения причин, хочу восстановиться на работе">Увольнение без причины</button>
+          <button class="suggestion" type="button" data-text="Бывший муж не платит алименты на ребёнка, скрывает доходы">Неуплата алиментов</button>
+          <button class="suggestion" type="button" data-text="Купил телефон, он оказался с браком, магазин отказывается вернуть деньги">Возврат за бракованный товар</button>
+        </div>
       </div>
     </div>
     <div class="chat-input-area">
       <div class="chat-input-row">
-        <textarea id="msgInput" placeholder="Опишите ситуацию..."
+        <textarea id="msgInput" placeholder="Опишите ситуацию..." aria-label="Описание ситуации"
                   rows="1" onkeydown="handleKey(event)"></textarea>
-        <button class="btn-send" id="btnSend" onclick="sendMessage()">Найти</button>
+        <button class="btn-send" id="btnSend" type="button" onclick="sendMessage()">Найти</button>
+      </div>
+      <div class="input-note">
+        Ответы носят информационный характер и не заменяют консультацию юриста.
       </div>
     </div>
   </div>
@@ -302,12 +451,12 @@
 
 <!-- Document Modal -->
 <div class="modal-overlay" id="docModal">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
     <div class="modal-header">
       <h3 id="modalTitle">Документ</h3>
       <div class="modal-actions">
         <a class="btn-download" id="btnDownload" href="#" download>Скачать .txt</a>
-        <button class="modal-close" onclick="closeModal()">&times;</button>
+        <button class="modal-close" type="button" aria-label="Закрыть" onclick="closeModal()">&times;</button>
       </div>
     </div>
     <div class="modal-body" id="modalBody"></div>
@@ -316,10 +465,10 @@
 
 <!-- Document Generation Modal -->
 <div class="modal-overlay" id="docGenModal">
-  <div class="modal docgen-modal">
+  <div class="modal docgen-modal" role="dialog" aria-modal="true" aria-labelledby="docGenModalTitle">
     <div class="modal-header">
-      <h3>Сформировать заявление</h3>
-      <button class="modal-close" onclick="closeDocGen()">&times;</button>
+      <h3 id="docGenModalTitle">Сформировать заявление</h3>
+      <button class="modal-close" type="button" aria-label="Закрыть" onclick="closeDocGen()">&times;</button>
     </div>
     <div class="modal-body docgen-body">
       <div class="form-row">
@@ -482,7 +631,9 @@ function renderMarkdown(text) {
 function addMessage(role, html, markdown) {
   const div = document.createElement('div');
   div.className = 'msg msg-' + role;
-  div.innerHTML = '<div class="msg-bubble' + (markdown ? ' md' : '') + '">' + html + '</div>';
+  const label = role === 'user' ? 'Вы' : 'Ассистент';
+  div.innerHTML = '<div class="msg-role">' + label + '</div>' +
+    '<div class="msg-bubble' + (markdown ? ' md' : '') + '">' + html + '</div>';
   document.getElementById('chatMessages').appendChild(div);
   div.scrollIntoView({ behavior: 'smooth' });
 }
@@ -503,16 +654,22 @@ function removeTyping() {
 
 function escapeHtml(s) {
   const d = document.createElement('div');
-  d.textContent = s;
+  d.textContent = s == null ? '' : String(s);
   return d.innerHTML;
+}
+
+function escapeAttr(s) {
+  return escapeHtml(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 function renderResults(results) {
   if (!results || !results.length) return '';
   let html = '<div class="results-section"><h4>Найденные прецеденты</h4>';
   results.forEach((r, i) => {
-    html += '<div class="result-card" onclick="openDoc(\'' + escapeHtml(r.filename) + '\')">' +
-      '<div class="rc-header"><span class="rc-title">' + (i+1) + '. ' + escapeHtml(r.filename) + '</span></div>' +
+    const score = typeof r.score === 'number' ? 'релевантность ' + r.score.toFixed(2) : '';
+    html += '<div class="result-card" role="button" tabindex="0" data-filename="' + escapeAttr(r.filename) + '">' +
+      '<div class="rc-header"><span class="rc-title">' + (i+1) + '. ' + escapeHtml(r.filename) + '</span>' +
+      (score ? '<span class="rc-score">' + escapeHtml(score) + '</span>' : '') + '</div>' +
       '<div class="rc-snippet">' + escapeHtml(r.snippet) + '</div></div>';
   });
   html += '</div>';
@@ -526,9 +683,13 @@ async function sendMessage() {
 
   sending = true;
   document.getElementById('btnSend').disabled = true;
+  document.getElementById('btnSend').textContent = 'Ищу…';
   input.value = '';
-  input.style.height = '44px';
+  input.style.height = '46px';
   lastUserMessage = text;
+
+  const welcome = document.getElementById('welcome');
+  if (welcome) welcome.remove();
 
   addMessage('user', escapeHtml(text));
   addTyping();
@@ -543,9 +704,22 @@ async function sendMessage() {
         mode: 'search'
       })
     });
-    const data = await resp.json();
-    removeTyping();
 
+    let data;
+    try {
+      data = await resp.json();
+    } catch (ignored) {
+      data = {};
+    }
+
+    if (!resp.ok) {
+      const detail = typeof data.detail === 'string'
+        ? data.detail
+        : 'Сервис временно недоступен. Попробуйте ещё раз.';
+      throw new Error(detail);
+    }
+
+    removeTyping();
     sessionId = data.session_id;
 
     let html = renderMarkdown(data.reply);
@@ -567,10 +741,13 @@ async function sendMessage() {
     initStarRatings();
   } catch(e) {
     removeTyping();
-    addMessage('bot', 'Произошла ошибка. Попробуйте ещё раз.');
+    const message = e && e.message ? e.message : 'Произошла ошибка. Попробуйте ещё раз.';
+    addMessage('bot', escapeHtml(message));
   } finally {
     sending = false;
-    document.getElementById('btnSend').disabled = false;
+    const sendBtn = document.getElementById('btnSend');
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'Найти';
   }
 }
 
@@ -615,9 +792,48 @@ document.addEventListener('keydown', function(e) {
 
 const msgInput = document.getElementById('msgInput');
 msgInput.addEventListener('input', function() {
-  this.style.height = '44px';
-  this.style.height = Math.min(this.scrollHeight, 120) + 'px';
+  this.style.height = '46px';
+  this.style.height = Math.min(this.scrollHeight, 140) + 'px';
 });
+
+// Делегирование событий: имена файлов не попадают в inline-JS.
+document.getElementById('chatMessages').addEventListener('click', function(e) {
+  const card = e.target.closest('.result-card');
+  if (card && card.dataset.filename) {
+    openDoc(card.dataset.filename);
+    return;
+  }
+  const suggestion = e.target.closest('.suggestion');
+  if (suggestion && suggestion.dataset.text) {
+    msgInput.value = suggestion.dataset.text;
+    msgInput.focus();
+    msgInput.dispatchEvent(new Event('input'));
+  }
+});
+
+document.getElementById('chatMessages').addEventListener('keydown', function(e) {
+  const card = e.target.closest('.result-card');
+  if (card && (e.key === 'Enter' || e.key === ' ')) {
+    e.preventDefault();
+    openDoc(card.dataset.filename);
+  }
+});
+
+async function checkHealth() {
+  const el = document.getElementById('serverStatus');
+  if (!el) return;
+  try {
+    const resp = await fetch(API + '/api/health', {cache: 'no-store'});
+    const data = await resp.json();
+    const ok = resp.ok && data.status === 'ok';
+    el.textContent = ok ? 'сервис работает' : 'индекс загружается';
+    el.className = 'status-dot ' + (ok ? 'online' : 'offline');
+  } catch (e) {
+    el.textContent = 'нет связи';
+    el.className = 'status-dot offline';
+  }
+}
+checkHealth();
 
 function renderFeedback(logId) {
   if (!logId) return '';

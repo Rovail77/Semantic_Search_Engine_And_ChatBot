@@ -50,10 +50,13 @@
 
     .section-title { font-size: 16px; font-weight: 600; margin-bottom: 12px; color: var(--primary); }
 
+    .table-wrap {
+      width: 100%; overflow-x: auto; border-radius: 8px;
+      border: 1px solid var(--border); background: var(--card-bg);
+    }
     table {
       width: 100%; border-collapse: collapse; background: var(--card-bg);
-      border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
-      font-size: 13px;
+      font-size: 13px; min-width: 760px;
     }
     th {
       background: var(--primary); color: #fff; padding: 10px 12px;
@@ -70,7 +73,27 @@
     }
     .badge-success { background: #e0f5e8; color: var(--green); }
     .badge-no_results { background: #fff3e0; color: var(--orange); }
-    .badge-error_api { background: #fde8e8; color: var(--red); }
+    .badge-error_api,
+    .badge-error_search,
+    .badge-unknown { background: #fde8e8; color: var(--red); }
+
+    .token-box {
+      display: flex; align-items: center; gap: 8px; margin-left: auto;
+    }
+    .token-box input {
+      padding: 6px 10px; font-size: 12px; border: 1px solid rgba(255,255,255,.28);
+      border-radius: 7px; background: rgba(255,255,255,.12); color: #fff;
+      width: 190px;
+    }
+    .token-box input::placeholder { color: rgba(255,255,255,.55); }
+    .token-box button {
+      padding: 6px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+      border: none; border-radius: 7px; background: var(--accent); color: var(--primary);
+    }
+    .header > a { margin-left: 0; }
+    .error-row td {
+      text-align: center; color: var(--red); padding: 22px; font-size: 13px;
+    }
 
     .stars { color: var(--accent); letter-spacing: 1px; }
     .no-rating { color: var(--text-muted); font-style: italic; }
@@ -94,9 +117,20 @@
                    white-space: nowrap; font-size: 12px; color: var(--text-muted); }
 
     @media (max-width: 768px) {
-      .stats-row { grid-template-columns: repeat(2, 1fr); }
-      table { font-size: 11px; }
+      .header { flex-wrap: wrap; padding: 12px 14px; }
+      .header h1 { font-size: 16px; }
+      .header > a { order: 3; }
+      .token-box { width: 100%; margin-left: 0; order: 4; }
+      .token-box input { flex: 1; width: auto; min-width: 0; }
+      .container { padding: 16px 12px; }
+      .stats-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+      .stat-card { padding: 12px 8px; }
+      .stat-card .stat-value { font-size: 22px; }
+      table { font-size: 11px; min-width: 720px; }
       th, td { padding: 6px 8px; }
+    }
+    @media (max-width: 480px) {
+      .stats-row { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -105,28 +139,35 @@
 <div class="header">
   <h1>Админ-панель</h1>
   <a href="/">Назад к чату</a>
+  <div class="token-box">
+    <input id="adminToken" type="password" placeholder="Токен администратора"
+           aria-label="Токен администратора" autocomplete="off">
+    <button type="button" onclick="saveToken()">Применить</button>
+  </div>
 </div>
 
 <div class="container">
   <div class="stats-row" id="statsRow"></div>
   <div class="section-title">Логи запросов и оценки</div>
-  <table>
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Время</th>
-        <th>Запрос</th>
-        <th>Переформулировки</th>
-        <th>Результаты</th>
-        <th>Latency</th>
-        <th>Статус</th>
-        <th>Переформ. ★</th>
-        <th>Релевант. ★</th>
-        <th>Комментарий</th>
-      </tr>
-    </thead>
-    <tbody id="logsBody"></tbody>
-  </table>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Время</th>
+          <th>Запрос</th>
+          <th>Переформулировки</th>
+          <th>Результаты</th>
+          <th>Latency</th>
+          <th>Статус</th>
+          <th>Переформ. ★</th>
+          <th>Релевант. ★</th>
+          <th>Комментарий</th>
+        </tr>
+      </thead>
+      <tbody id="logsBody"></tbody>
+    </table>
+  </div>
   <div class="pagination" id="pagination"></div>
 </div>
 
@@ -134,6 +175,27 @@
 const API = '';
 let currentPage = 0;
 const PAGE_SIZE = 50;
+
+function getToken() {
+  try { return localStorage.getItem('adminToken') || ''; } catch (e) { return ''; }
+}
+
+function saveToken() {
+  const value = document.getElementById('adminToken').value.trim();
+  try {
+    if (value) localStorage.setItem('adminToken', value);
+    else localStorage.removeItem('adminToken');
+  } catch (e) { /* приватный режим браузера */ }
+  currentPage = 0;
+  loadPage();
+}
+
+async function apiFetch(url) {
+  const headers = {};
+  const token = getToken();
+  if (token) headers['X-Admin-Token'] = token;
+  return fetch(url, {headers: headers, cache: 'no-store'});
+}
 
 function esc(s) {
   if (s == null) return '';
@@ -152,16 +214,25 @@ function starsHtml(val) {
 }
 
 function statusBadge(status) {
-  const labels = { success: 'OK', no_results: 'Нет результатов', error_api: 'Ошибка API' };
-  return '<span class="badge badge-' + status + '">' + (labels[status] || status) + '</span>';
+  const labels = {
+    success: 'OK',
+    no_results: 'Нет результатов',
+    error_api: 'Ошибка API',
+    error_search: 'Ошибка поиска'
+  };
+  const safe = Object.prototype.hasOwnProperty.call(labels, status) ? status : 'unknown';
+  return '<span class="badge badge-' + safe + '">' +
+    esc(labels[status] || status) + '</span>';
 }
 
 function formatTime(iso) {
   if (!iso) return '—';
   try {
     const d = new Date(iso);
-    return d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  } catch { return iso; }
+    if (isNaN(d.getTime())) return esc(iso);
+    return esc(d.toLocaleDateString('ru-RU') + ' ' +
+      d.toLocaleTimeString('ru-RU', {hour:'2-digit',minute:'2-digit',second:'2-digit'}));
+  } catch (e) { return esc(iso); }
 }
 
 function renderStats(data) {
@@ -232,9 +303,17 @@ function goPage(p) {
 async function loadPage() {
   try {
     const [logsResp, statsResp] = await Promise.all([
-      fetch(API + '/api/logs?limit=' + PAGE_SIZE + '&offset=' + (currentPage * PAGE_SIZE)),
-      fetch(API + '/api/log-stats')
+      apiFetch(API + '/api/logs?limit=' + PAGE_SIZE + '&offset=' + (currentPage * PAGE_SIZE)),
+      apiFetch(API + '/api/log-stats')
     ]);
+
+    if (logsResp.status === 401 || statsResp.status === 401) {
+      throw new Error('unauthorized');
+    }
+    if (!logsResp.ok || !statsResp.ok) {
+      throw new Error('request failed');
+    }
+
     const logs = await logsResp.json();
     const stats = await statsResp.json();
 
@@ -244,10 +323,17 @@ async function loadPage() {
     const totalLogs = stats.total_queries;
     renderPagination(totalLogs);
   } catch (e) {
+    const message = e && e.message === 'unauthorized'
+      ? 'Требуется токен администратора — введите его в поле справа сверху.'
+      : 'Ошибка загрузки данных. Проверьте соединение и повторите позже.';
     document.getElementById('logsBody').innerHTML =
-      '<tr><td colspan="10" style="text-align:center;color:var(--red)">Ошибка загрузки данных</td></tr>';
+      '<tr class="error-row"><td colspan="10">' + esc(message) + '</td></tr>';
   }
 }
+
+try {
+  document.getElementById('adminToken').value = getToken();
+} catch (e) { /* ignore */ }
 
 loadPage();
 </script>

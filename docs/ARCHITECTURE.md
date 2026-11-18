@@ -6,13 +6,14 @@
 Браузер
   │  HTML/JS
   ▼
-FastAPI (app.py)
+FastAPI (app.py) ──► security.py (лимиты, заголовки, токен)
   ├─ ChatBot (chatbot.py)
   │    ├─ Reformulator (reformulator.py) ──► LLMClient (llm_client.py)
   │    └─ HybridSearcher (search_engine.py)
   │         ├─ FAISS (косинусное сходство)
   │         └─ BM25 + RRF
   ├─ DocumentGenerator (document_generator.py) ──► LLMClient
+  ├─ DocumentStore (document_store.py) ──► DOCX + JSON на диске
   └─ QueryLogger (query_logger.py) ──► SQLite
 
 Scheduler (scheduler.py)
@@ -37,6 +38,12 @@ Scheduler (scheduler.py)
 - **RRF**: `score(d) = Σ 1 / (k + rank_r(d))`, `k = 60`.
 - Результаты фильтруются по порогу, дедуплицируются по имени файла и
   ограничиваются топ-K.
+- Эмбеддинги запросов кэшируются (LRU), документы — тоже; ключ включает
+  `mtime` и размер, поэтому правка файла не отдаёт устаревший текст.
+- Топ-N BM25 выбирается через `argpartition`, а не полной сортировкой.
+- Индекс, BM25 и метаданные хранятся единым снимком. `reload()` собирает
+  новые объекты и подменяет снимок одной операцией под `RLock`, поэтому
+  поиск не видит рассогласованное состояние.
 
 ## Индексация
 
@@ -69,5 +76,26 @@ Scheduler (scheduler.py)
 | `create_index.py` | Построение FAISS и BM25 |
 | `query_logger.py` | SQLite-логи и обратная связь |
 | `scheduler.py` | Периодический сбор и переиндексация |
+| `security.py` | Rate limit, размер тела, защитные заголовки, админ-токен |
+| `document_store.py` | Серверное хранение черновиков (DOCX + метаданные) |
 | `config.py` | Переменные окружения и пути |
 | `utils.py` | Токенизация, RRF, сниппеты, извлечение норм |
+
+## Отказоустойчивость
+
+- Синхронные тяжёлые операции выполняются в threadpool Starlette, а не в
+  event loop.
+- Число одновременных обращений к LLM ограничено семафором;
+  повторные попытки идут с экспоненциальной паузой.
+- Чат переживает сбой поиска и сбой записи в SQLite: пользователь получает
+  понятное сообщение, запрос логируется как `error_search`.
+- Сессии ограничены по количеству и TTL, очистка throttled.
+- Индексы и тексты пишутся атомарно (`.tmp` + `os.replace`).
+- При отсутствии индексов приложение стартует в режиме `degraded`.
+
+## Безопасность
+
+Админ-операции закрываются `ADMIN_TOKEN`; HTTP-слой добавляет CSP,
+`X-Frame-Options`, `nosniff`, лимиты запросов и размера тела. Подробности и
+остаточные риски — `docs/SECURITY.md`. Развёртывание — `docs/DEPLOYMENT_CHELGU.md`,
+хранение документов — `docs/DOCUMENT_STORAGE.md`.

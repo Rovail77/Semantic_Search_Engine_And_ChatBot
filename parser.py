@@ -1,6 +1,7 @@
 import argparse
 import json
 import os
+import re
 import time
 
 from bs4 import BeautifulSoup
@@ -10,10 +11,12 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.edge.service import Service
 
 from config import (
+    CHROME_DRIVER_PATH,
     EDGE_DRIVER_PATH,
     MAIN_URL,
     OUTPUT_DIR,
     PARSED_URLS_FILE,
+    PARSER_BROWSER,
     PARSER_HEADLESS,
     PARSER_PAGE_TIMEOUT,
 )
@@ -42,14 +45,18 @@ def save_parsed_urls(urls: set):
 
 
 # ─────────────── Драйвер ─────────────────────────
-def create_driver(headless: bool | None = None) -> webdriver.Edge:
-    opts = webdriver.EdgeOptions()
+def create_driver(headless: bool | None = None):
+    """Создаёт браузер: Edge на Windows или Chrome/Chromium на Linux-сервере."""
+    use_chrome = PARSER_BROWSER in {"chrome", "chromium"}
+    opts = webdriver.ChromeOptions() if use_chrome else webdriver.EdgeOptions()
     opts.page_load_strategy = "eager"
     opts.add_argument("--blink-settings=imagesEnabled=false")
     opts.add_argument("--disable-gpu")
     opts.add_argument("--log-level=3")
     opts.add_argument("--disable-blink-features=AutomationControlled")
     opts.add_argument("--disable-extensions")
+    opts.add_argument("--no-sandbox")
+    opts.add_argument("--disable-dev-shm-usage")
     opts.add_experimental_option("excludeSwitches", ["enable-automation"])
     opts.add_experimental_option("useAutomationExtension", False)
 
@@ -58,11 +65,12 @@ def create_driver(headless: bool | None = None) -> webdriver.Edge:
         opts.add_argument("--headless=new")
 
     # Если драйвер не задан или не найден, Selenium Manager подберёт его сам.
-    if EDGE_DRIVER_PATH and os.path.exists(EDGE_DRIVER_PATH):
-        service = Service(EDGE_DRIVER_PATH)
-        driver = webdriver.Edge(options=opts, service=service)
+    driver_path = CHROME_DRIVER_PATH if use_chrome else EDGE_DRIVER_PATH
+    browser = webdriver.Chrome if use_chrome else webdriver.Edge
+    if driver_path and os.path.exists(driver_path):
+        driver = browser(options=opts, service=Service(driver_path))
     else:
-        driver = webdriver.Edge(options=opts)
+        driver = browser(options=opts)
 
     driver.execute_cdp_cmd(
         "Page.addScriptToEvaluateOnNewDocument",
@@ -203,18 +211,32 @@ def parse_text_from_html(driver, url: str) -> str | None:
     return text
 
 
+def sanitize_slug(slug: str) -> str:
+    """Превращает сегмент URL в безопасное имя файла.
+
+    Убирает всё, кроме букв, цифр, дефиса, подчёркивания и точки, и не даёт
+    получить ``..`` или скрытый файл.
+    """
+    cleaned = re.sub(r"[^\w\-.]", "_", (slug or "").strip(), flags=re.UNICODE)
+    cleaned = cleaned.strip("._")
+    return cleaned[:180]
+
+
 def process_single_document(driver, url: str, parsed_urls: set) -> bool:
-    slug = url.strip("/").split("/")[-1]
+    slug = sanitize_slug(url.strip("/").split("/")[-1])
     if not slug:
         return False
     txt_path = os.path.join(OUTPUT_DIR, f"{slug}.txt")
+    tmp_path = f"{txt_path}.tmp"
 
     text = parse_text_from_html(driver, url)
     if not text:
         return False
 
-    with open(txt_path, "w", encoding="utf-8") as f:
+    # Атомарная запись: при сбое не остаётся недописанный документ.
+    with open(tmp_path, "w", encoding="utf-8") as f:
         f.write(text)
+    os.replace(tmp_path, txt_path)
 
     parsed_urls.add(url)
     return True
@@ -253,6 +275,7 @@ def run_full_pipeline(
             except Exception as e:
                 print(f"  [{i}] Error: {e}")
                 ok = False
+                fail += 1
                 consecutive_fails += 1
 
                 if consecutive_fails >= 10:

@@ -32,7 +32,9 @@ python app.py
 
 ## Нейрокомпьютер ЧелГУ
 
-Рекомендуемая схема:
+Полная пошаговая инструкция: [DEPLOYMENT_CHELGU.md](DEPLOYMENT_CHELGU.md).
+
+Кратко:
 
 1. Развернуть на GPU-сервере Ollama или vLLM с Qwen2.5-7B/14B.
 2. Открыть inference endpoint только во внутренней сети.

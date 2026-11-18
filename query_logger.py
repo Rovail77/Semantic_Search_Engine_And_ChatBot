@@ -32,7 +32,19 @@ def _connect() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=5000")
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
+
+
+def _ensure_columns(conn: sqlite3.Connection) -> None:
+    """Добавляет колонку mode в старые базы без пересоздания таблицы."""
+    columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(query_logs)")
+    }
+    if "mode" not in columns:
+        conn.execute(
+            "ALTER TABLE query_logs ADD COLUMN mode TEXT DEFAULT 'search'"
+        )
 
 
 def init_db():
@@ -67,6 +79,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_query_logs_created ON query_logs(created_at);
         CREATE INDEX IF NOT EXISTS idx_feedback_log_id ON feedback(log_id);
     """)
+    _ensure_columns(conn)
     conn.commit()
     conn.close()
 
@@ -139,16 +152,22 @@ def save_feedback(
 
 def get_logs(limit: int = 100, offset: int = 0) -> list[dict]:
     """Возвращает логи запросов с оценками (если есть)."""
+    limit = max(1, min(int(limit), 500))
+    offset = max(0, int(offset))
+
     conn = _connect()
-    rows = conn.execute(
-        """SELECT ql.*, f.reformulation_quality, f.relevance_rating, f.comment AS feedback_comment
-           FROM query_logs ql
-           LEFT JOIN feedback f ON f.log_id = ql.id
-           ORDER BY ql.id DESC
-           LIMIT ? OFFSET ?""",
-        (limit, offset),
-    ).fetchall()
-    conn.close()
+    try:
+        rows = conn.execute(
+            """SELECT ql.*, f.reformulation_quality, f.relevance_rating,
+                      f.comment AS feedback_comment
+               FROM query_logs ql
+               LEFT JOIN feedback f ON f.log_id = ql.id
+               ORDER BY ql.id DESC
+               LIMIT ? OFFSET ?""",
+            (limit, offset),
+        ).fetchall()
+    finally:
+        conn.close()
 
     result = []
     for r in rows:

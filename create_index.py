@@ -46,6 +46,26 @@ LEGAL_SEPARATORS = [
 ]
 
 
+def _replace_atomically(source: str, destination: str) -> None:
+    """Переносит готовый файл на место, не оставляя полузаписанный индекс."""
+    os.replace(source, destination)
+
+
+def _write_pickle_atomically(obj, destination: str) -> None:
+    tmp_path = f"{destination}.tmp"
+    with open(tmp_path, "wb") as f:
+        pickle.dump(obj, f, protocol=pickle.HIGHEST_PROTOCOL)
+        f.flush()
+        os.fsync(f.fileno())
+    _replace_atomically(tmp_path, destination)
+
+
+def _write_faiss_atomically(index, destination: str) -> None:
+    tmp_path = f"{destination}.tmp"
+    faiss.write_index(index, tmp_path)
+    _replace_atomically(tmp_path, destination)
+
+
 def _list_text_files() -> list[str]:
     if not os.path.isdir(OUTPUT_DIR):
         return []
@@ -122,12 +142,11 @@ def create_hybrid_index() -> dict:
         index = faiss.IndexFlatIP(dimension)
         index.add(embeddings)
 
-    faiss.write_index(index, INDEX_FILE)
+    _write_faiss_atomically(index, INDEX_FILE)
 
     tokenized = [tokenize(chunk) for chunk in all_chunks]
     bm25 = BM25Okapi(tokenized)
-    with open(BM25_FILE, "wb") as f:
-        pickle.dump(bm25, f)
+    _write_pickle_atomically(bm25, BM25_FILE)
 
     chunks_data = {
         "filenames": chunk_filenames,
@@ -136,8 +155,7 @@ def create_hybrid_index() -> dict:
         "chunk_size": CHUNK_SIZE,
         "chunk_overlap": CHUNK_OVERLAP,
     }
-    with open(CHUNKS_DATA_FILE, "wb") as f:
-        pickle.dump(chunks_data, f)
+    _write_pickle_atomically(chunks_data, CHUNKS_DATA_FILE)
 
     print(f"Saved: {INDEX_FILE}, {BM25_FILE}, {CHUNKS_DATA_FILE}")
     return {

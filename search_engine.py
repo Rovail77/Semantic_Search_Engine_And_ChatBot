@@ -6,6 +6,10 @@
   3. Объединение внутри каждого запроса через Reciprocal Rank Fusion.
   4. Суммирование RRF-оценок по всем запросам (исходный + переформулировки).
   5. Дедупликация по документам и контекстные сниппеты.
+
+Индексы хранятся как единый неизменяемый снимок. Перезагрузка собирает новые
+объекты и подменяет снимок одной операцией, поэтому параллельный поиск никогда
+не увидит рассогласованные FAISS/BM25/метаданные.
 """
 
 from __future__ import annotations
@@ -14,6 +18,9 @@ import logging
 import os
 import pickle
 import re
+import threading
+from collections import OrderedDict
+from pathlib import Path
 
 import faiss
 import numpy as np
@@ -25,10 +32,12 @@ from config import (
     BM25_FILE,
     CHUNKS_DATA_FILE,
     DEFAULT_TOP_K,
+    DOCUMENT_CACHE_SIZE,
     EMBEDDING_MODEL,
     INDEX_FILE,
     MIN_SCORE_THRESHOLD,
     OUTPUT_DIR,
+    QUERY_CACHE_SIZE,
     SEMANTIC_CANDIDATES,
 )
 from reformulator import reformulate_with_fallback
@@ -41,12 +50,48 @@ from utils import (
 
 logger = logging.getLogger("search_engine")
 
+SAFE_FILENAME_RE = re.compile(r"^[\w\-.]+\.txt$", re.UNICODE)
+
+
+class _LRUCache:
+    """Небольшой потокобезопасный LRU-кэш без внешних зависимостей."""
+
+    def __init__(self, capacity: int):
+        self.capacity = max(1, int(capacity))
+        self._items: OrderedDict = OrderedDict()
+        self._lock = threading.Lock()
+
+    def get(self, key):
+        with self._lock:
+            if key not in self._items:
+                return None
+            value = self._items.pop(key)
+            self._items[key] = value
+            return value
+
+    def put(self, key, value) -> None:
+        with self._lock:
+            self._items[key] = value
+            self._items.move_to_end(key)
+            while len(self._items) > self.capacity:
+                self._items.popitem(last=False)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._items.clear()
+
 
 class HybridSearcher:
     def __init__(self):
         logger.info("Loading search engine: %s", EMBEDDING_MODEL)
         self.model = SentenceTransformer(EMBEDDING_MODEL)
+        self._state_lock = threading.RLock()
+        self._state: tuple | None = None
+        self._query_cache = _LRUCache(QUERY_CACHE_SIZE)
+        self._document_cache = _LRUCache(DOCUMENT_CACHE_SIZE)
         self._load_indexes()
+
+    # ─────────────── Снимок состояния ─────────────────
 
     def _load_indexes(self) -> None:
         missing = [
@@ -61,44 +106,106 @@ class HybridSearcher:
                 + ". Сначала запустите parser.py и create_index.py."
             )
 
-        self.index = faiss.read_index(INDEX_FILE)
+        index = faiss.read_index(INDEX_FILE)
         with open(CHUNKS_DATA_FILE, "rb") as f:
-            self.chunks = pickle.load(f)
+            chunks = pickle.load(f)
         with open(BM25_FILE, "rb") as f:
-            self.bm25: BM25Okapi = pickle.load(f)
+            bm25: BM25Okapi = pickle.load(f)
 
-        self.n_chunks = len(self.chunks["filenames"])
-        if getattr(self.index, "ntotal", self.n_chunks) != self.n_chunks:
+        filenames = chunks.get("filenames") if isinstance(chunks, dict) else None
+        if not isinstance(filenames, list):
+            raise ValueError("Файл chunks_data.pkl повреждён: нет списка filenames.")
+
+        n_chunks = min(len(filenames), getattr(index, "ntotal", len(filenames)))
+        if getattr(index, "ntotal", n_chunks) != len(filenames):
             logger.warning(
-                "Количество векторов в FAISS (%s) не совпадает с числом чанков (%s)",
-                getattr(self.index, "ntotal", -1),
-                self.n_chunks,
+                "Количество векторов в FAISS (%s) не совпадает с числом чанков (%s); "
+                "используется %s.",
+                getattr(index, "ntotal", -1),
+                len(filenames),
+                n_chunks,
             )
-        logger.info("Index loaded: %s chunks, dim=%s", self.n_chunks, self.index.d)
+
+        with self._state_lock:
+            self._state = (index, chunks, bm25, n_chunks)
+        self._query_cache.clear()
+        self._document_cache.clear()
+        logger.info("Index loaded: %s chunks, dim=%s", n_chunks, index.d)
+
+    def _snapshot(self) -> tuple:
+        state = self._state
+        if state is None:  # pragma: no cover - защита от гонки при старте
+            with self._state_lock:
+                state = self._state
+        if state is None:
+            raise RuntimeError("Поисковый индекс не загружен.")
+        return state
+
+    @property
+    def index(self):
+        return self._snapshot()[0]
+
+    @property
+    def chunks(self):
+        return self._snapshot()[1]
+
+    @property
+    def bm25(self):
+        return self._snapshot()[2]
+
+    @property
+    def n_chunks(self) -> int:
+        return self._snapshot()[3]
+
+    # ─────────────── Поиск ────────────────────────────
+
+    def _encode_query(self, query: str) -> np.ndarray:
+        cached = self._query_cache.get(query)
+        if cached is not None:
+            return cached
+
+        emb = self.model.encode(
+            [query],
+            convert_to_numpy=True,
+            show_progress_bar=False,
+        ).astype("float32")
+        faiss.normalize_L2(emb)
+        self._query_cache.put(query, emb)
+        return emb
 
     def _semantic_search(self, query: str, top_n: int) -> list[tuple[int, float]]:
-        if not query.strip() or self.n_chunks == 0:
+        index, _chunks, _bm25, n_chunks = self._snapshot()
+        if not query.strip() or n_chunks == 0:
             return []
 
-        emb = self.model.encode([query], convert_to_numpy=True).astype("float32")
-        faiss.normalize_L2(emb)
-        scores, indices = self.index.search(emb, min(top_n, self.n_chunks))
+        emb = self._encode_query(query)
+        scores, indices = index.search(emb, min(top_n, n_chunks))
 
         results = []
         for idx, score in zip(indices[0], scores[0]):
-            if idx == -1:
+            if idx == -1 or idx >= n_chunks:
                 continue
             results.append((int(idx), float(score)))
         return results
 
     def _bm25_search(self, query: str, top_n: int) -> list[tuple[int, float]]:
+        _index, _chunks, bm25, n_chunks = self._snapshot()
         tokens = tokenize(query)
-        if not tokens or self.n_chunks == 0:
+        if not tokens or n_chunks == 0:
             return []
 
-        scores = self.bm25.get_scores(tokens)
-        top_indices = np.argsort(scores)[::-1][:top_n]
-        return [(int(i), float(scores[i])) for i in top_indices if scores[i] > 0]
+        scores = bm25.get_scores(tokens)
+        if len(scores) == 0:
+            return []
+
+        top_n = min(top_n, len(scores))
+        if top_n < len(scores):
+            candidates = np.argpartition(scores, -top_n)[-top_n:]
+        else:
+            candidates = np.arange(len(scores))
+        order = candidates[np.argsort(scores[candidates])[::-1]]
+
+        return [(int(i), float(scores[i])) for i in order if scores[i] > 0]
 
     def search(
         self,
@@ -133,12 +240,17 @@ class HybridSearcher:
 
         sorted_chunks = sorted(rrf_scores.items(), key=lambda item: item[1], reverse=True)
 
+        _index, chunks, _bm25, n_chunks = self._snapshot()
+        filenames = chunks["filenames"]
+
         seen_files: set[str] = set()
         results = []
         for chunk_idx, score in sorted_chunks:
             if score < MIN_SCORE_THRESHOLD:
                 break
-            filename = self.chunks["filenames"][chunk_idx]
+            if chunk_idx < 0 or chunk_idx >= n_chunks:
+                continue
+            filename = filenames[chunk_idx]
             if filename in seen_files:
                 continue
 
@@ -164,19 +276,46 @@ class HybridSearcher:
             "total_found": len(results),
         }
 
+    # ─────────────── Документы ────────────────────────
+
+    def _document_path(self, filename: str) -> Path | None:
+        if not SAFE_FILENAME_RE.match(filename or ""):
+            return None
+
+        base = Path(OUTPUT_DIR).resolve()
+        candidate = (base / filename).resolve()
+        try:
+            candidate.relative_to(base)
+        except ValueError:
+            return None
+        return candidate
+
     def get_document_text(self, filename: str) -> str | None:
-        if not re.match(r"^[\w\-.]+\.txt$", filename or "", flags=re.UNICODE):
+        path = self._document_path(filename)
+        if path is None:
             return None
 
-        path = os.path.normpath(os.path.join(OUTPUT_DIR, filename))
-        base = os.path.normpath(os.path.abspath(OUTPUT_DIR))
-        if not os.path.abspath(path).startswith(base + os.sep):
+        try:
+            stat = path.stat()
+        except OSError:
             return None
-        if not os.path.exists(path):
+        if not path.is_file():
             return None
 
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
+        cache_key = (filename, stat.st_mtime_ns, stat.st_size)
+        cached = self._document_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError:
+            logger.warning("Не удалось прочитать документ %s", filename)
+            return None
+
+        self._document_cache.put(cache_key, text)
+        return text
 
     def reload(self) -> None:
         """Перезагружает индексы с диска после переиндексации."""

@@ -50,7 +50,11 @@ htmlcov/
 # Generated documents / exports
 generated_documents/
 exports/
+stored_documents/
 *.tmp
+
+# Local backups
+backups/
 
 # DB
 *.db

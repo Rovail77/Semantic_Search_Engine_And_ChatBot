@@ -15,11 +15,17 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import time
 import uuid
 from typing import TYPE_CHECKING
 
-from config import CHAT_MAX_HISTORY_MESSAGES, CHAT_SESSION_TTL_SECONDS
+from config import (
+    CHAT_CLEANUP_INTERVAL_SECONDS,
+    CHAT_MAX_HISTORY_MESSAGES,
+    CHAT_MAX_SESSIONS,
+    CHAT_SESSION_TTL_SECONDS,
+)
 from query_logger import log_query
 from reformulator import (
     generate_answer_with_fallback,
@@ -87,53 +93,77 @@ class ChatSession:
         self.created_at = time.time()
         self.last_active = time.time()
         self.context: dict = {}
+        self.lock = threading.RLock()
 
     def add_message(self, role: str, content: str, metadata: dict | None = None):
-        self.history.append(
-            {
-                "role": role,
-                "content": content,
-                "metadata": metadata or {},
-                "timestamp": time.time(),
-            }
-        )
-        if len(self.history) > CHAT_MAX_HISTORY_MESSAGES:
-            self.history = self.history[-CHAT_MAX_HISTORY_MESSAGES:]
-        self.last_active = time.time()
+        with self.lock:
+            self.history.append(
+                {
+                    "role": role,
+                    "content": content,
+                    "metadata": metadata or {},
+                    "timestamp": time.time(),
+                }
+            )
+            if len(self.history) > CHAT_MAX_HISTORY_MESSAGES:
+                self.history = self.history[-CHAT_MAX_HISTORY_MESSAGES:]
+            self.last_active = time.time()
 
     def is_expired(self) -> bool:
         return (time.time() - self.last_active) > CHAT_SESSION_TTL_SECONDS
 
     def get_last_user_message(self) -> str | None:
-        for msg in reversed(self.history):
-            if msg["role"] == "user":
-                return msg["content"]
+        with self.lock:
+            for msg in reversed(self.history):
+                if msg["role"] == "user":
+                    return msg["content"]
         return None
 
     def get_chat_history_for_llm(self, max_messages: int = 6) -> list[dict]:
-        recent = self.history[-max_messages:]
-        return [{"role": m["role"], "content": m["content"]} for m in recent]
+        with self.lock:
+            recent = self.history[-max_messages:]
+            return [{"role": m["role"], "content": m["content"]} for m in recent]
 
 
 class ChatBot:
     def __init__(self, searcher: HybridSearcher):
         self.searcher = searcher
         self.sessions: dict[str, ChatSession] = {}
+        self._sessions_lock = threading.RLock()
+        self._last_cleanup = 0.0
 
     def _get_or_create_session(self, session_id: str | None) -> ChatSession:
-        if session_id and session_id in self.sessions:
-            session = self.sessions[session_id]
-            if not session.is_expired():
-                return session
+        with self._sessions_lock:
+            if session_id and session_id in self.sessions:
+                session = self.sessions[session_id]
+                if not session.is_expired():
+                    return session
 
-        session = ChatSession(session_id)
-        self.sessions[session.session_id] = session
-        return session
+            session = ChatSession(session_id)
+            self.sessions[session.session_id] = session
+            self._evict_if_needed()
+            return session
+
+    def _evict_if_needed(self) -> None:
+        """Ограничивает число сессий, чтобы анонимный клиент не съел память."""
+        if len(self.sessions) <= CHAT_MAX_SESSIONS:
+            return
+        excess = len(self.sessions) - CHAT_MAX_SESSIONS
+        oldest = sorted(
+            self.sessions.items(), key=lambda item: item[1].last_active
+        )[:excess]
+        for sid, _session in oldest:
+            self.sessions.pop(sid, None)
 
     def _cleanup_expired(self):
-        expired = [sid for sid, s in self.sessions.items() if s.is_expired()]
-        for sid in expired:
-            del self.sessions[sid]
+        now = time.monotonic()
+        if now - self._last_cleanup < CHAT_CLEANUP_INTERVAL_SECONDS:
+            return
+        self._last_cleanup = now
+        with self._sessions_lock:
+            expired = [sid for sid, s in self.sessions.items() if s.is_expired()]
+            for sid in expired:
+                self.sessions.pop(sid, None)
 
     def _determine_status(self, results: list[dict], reformulation_ok: bool) -> str:
         if not results:
@@ -141,6 +171,15 @@ class ChatBot:
         if not reformulation_ok:
             return "error_api"
         return "success"
+
+    @staticmethod
+    def _safe_log(**kwargs) -> int | None:
+        """Логирование не должно ронять основной сценарий чата."""
+        try:
+            return log_query(**kwargs)
+        except Exception:  # pragma: no cover - защита от сбоя БД
+            logger.exception("Не удалось записать лог запроса")
+            return None
 
     def process_message(
         self,
@@ -177,7 +216,7 @@ class ChatBot:
             total_latency = int((time.monotonic() - total_start) * 1000)
 
             session.add_message("assistant", clarification)
-            log_id = log_query(
+            log_id = self._safe_log(
                 session_id=session.session_id,
                 query_text=user_message,
                 reformulation_latency_ms=reform_latency,
@@ -209,28 +248,54 @@ class ChatBot:
         )
 
         search_start = time.monotonic()
-        search_result = self.searcher.search(
-            query=user_message,
-            k=10,
-            use_reformulation=False,
-        )
+        try:
+            search_result = self.searcher.search(
+                query=user_message,
+                k=10,
+                use_reformulation=False,
+            )
 
-        if extra_queries:
-            existing_filenames = {r["filename"] for r in search_result["results"]}
-            for rq in extra_queries:
-                extra = self.searcher.search(
-                    query=rq,
-                    k=5,
-                    use_reformulation=False,
-                )
-                for result in extra["results"]:
-                    if result["filename"] not in existing_filenames:
-                        search_result["results"].append(result)
-                        existing_filenames.add(result["filename"])
+            if extra_queries:
+                existing_filenames = {r["filename"] for r in search_result["results"]}
+                for rq in extra_queries[:6]:
+                    extra = self.searcher.search(
+                        query=rq,
+                        k=5,
+                        use_reformulation=False,
+                    )
+                    for result in extra["results"]:
+                        if result["filename"] not in existing_filenames:
+                            search_result["results"].append(result)
+                            existing_filenames.add(result["filename"])
 
-            search_result["results"].sort(key=lambda x: x["score"], reverse=True)
-            search_result["results"] = search_result["results"][:10]
-            search_result["total_found"] = len(search_result["results"])
+                search_result["results"].sort(key=lambda x: x["score"], reverse=True)
+                search_result["results"] = search_result["results"][:10]
+                search_result["total_found"] = len(search_result["results"])
+        except Exception:
+            logger.exception("Ошибка поиска")
+            search_latency = int((time.monotonic() - search_start) * 1000)
+            reply = (
+                "Не удалось выполнить поиск: поисковый индекс временно недоступен. "
+                "Попробуйте повторить запрос через минуту."
+            )
+            session.add_message("assistant", reply)
+            log_id = self._safe_log(
+                session_id=session.session_id,
+                query_text=user_message,
+                reformulation_latency_ms=reform_latency,
+                search_latency_ms=search_latency,
+                total_latency_ms=int((time.monotonic() - total_start) * 1000),
+                status="error_search",
+                mode="search",
+            )
+            return {
+                "session_id": session.session_id,
+                "reply": reply,
+                "reformulated_queries": None,
+                "search_results": [],
+                "mode": "search",
+                "log_id": log_id,
+            }
 
         search_latency = int((time.monotonic() - search_start) * 1000)
 
@@ -259,7 +324,7 @@ class ChatBot:
             },
         )
 
-        log_id = log_query(
+        log_id = self._safe_log(
             session_id=session.session_id,
             query_text=user_message,
             reformulated_queries=reformulated_for_response,

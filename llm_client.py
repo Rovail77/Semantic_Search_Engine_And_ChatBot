@@ -13,10 +13,13 @@
 from __future__ import annotations
 
 import logging
+import random
 import re
 import threading
+import time
 
 from config import (
+    LLM_MAX_CONCURRENCY,
     LLM_MAX_RETRIES,
     LLM_MODEL,
     LLM_PROVIDER,
@@ -34,6 +37,9 @@ FENCE_RE = re.compile(r"^```[a-zA-Z]*\s*|\s*```$", re.MULTILINE)
 
 _client = None
 _client_lock = threading.Lock()
+_semaphore = threading.BoundedSemaphore(max(1, LLM_MAX_CONCURRENCY))
+RETRY_BASE_DELAY = 0.4
+RETRY_MAX_DELAY = 8.0
 
 
 class LLMError(RuntimeError):
@@ -42,7 +48,12 @@ class LLMError(RuntimeError):
 
 def _get_ollama_client():
     global _client
-    if _client is None:
+    if _client is not None:
+        return _client
+
+    with _client_lock:
+        if _client is not None:
+            return _client
         try:
             from ollama import Client
         except ImportError as exc:  # pragma: no cover - зависит от окружения
@@ -56,7 +67,12 @@ def _get_ollama_client():
 
 def _get_openai_client():
     global _client
-    if _client is None:
+    if _client is not None:
+        return _client
+
+    with _client_lock:
+        if _client is not None:
+            return _client
         try:
             from openai import OpenAI
         except ImportError as exc:  # pragma: no cover - зависит от окружения
@@ -121,24 +137,43 @@ def chat_completion(
 ) -> str:
     """Отправляет запрос модели и возвращает очищенный текст ответа.
 
-    При ошибке делает несколько повторных попыток (LLM_MAX_RETRIES).
-    Если все попытки неудачны, поднимает LLMError.
+    Число одновременных обращений ограничено ``LLM_MAX_CONCURRENCY``: локальная
+    модель на одной GPU деградирует, если запустить десятки генераций сразу.
+    При ошибке выполняются повторные попытки с экспоненциальной паузой.
     """
     global _client
     last_error: Exception | None = None
     attempts = max(1, LLM_MAX_RETRIES + 1)
 
-    for attempt in range(1, attempts + 1):
-        try:
-            return _chat_once(system_prompt, user_message, temperature, max_tokens)
-        except Exception as exc:  # сеть, таймауты, ответ сервера
-            last_error = exc
-            logger.warning(
-                "LLM request failed (attempt %s/%s): %s", attempt, attempts, exc
-            )
-            # Сбрасываем клиент, чтобы следующая попытка пересоздала соединение
-            with _client_lock:
-                _client = None
+    if not _semaphore.acquire(timeout=LLM_TIMEOUT):
+        raise LLMError("Сервер языковой модели перегружен. Попробуйте позже.")
+
+    try:
+        for attempt in range(1, attempts + 1):
+            try:
+                return _chat_once(
+                    system_prompt, user_message, temperature, max_tokens
+                )
+            except Exception as exc:  # сеть, таймауты, ответ сервера
+                last_error = exc
+                logger.warning(
+                    "LLM request failed (attempt %s/%s): %s",
+                    attempt,
+                    attempts,
+                    exc,
+                )
+                # Сбрасываем клиент, чтобы следующая попытка пересоздала соединение
+                with _client_lock:
+                    _client = None
+
+                if attempt < attempts:
+                    delay = min(
+                        RETRY_MAX_DELAY,
+                        RETRY_BASE_DELAY * (2 ** (attempt - 1)),
+                    )
+                    time.sleep(delay + random.uniform(0, 0.1))
+    finally:
+        _semaphore.release()
 
     raise LLMError(f"Не удалось получить ответ от LLM: {last_error}") from last_error
 
