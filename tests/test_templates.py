@@ -49,3 +49,10 @@ def test_admin_does_not_inject_status_into_html():
     html = (TEMPLATES / "admin.html").read_text(encoding="utf-8")
     assert "badge-' + safe" in html
     assert "badge-' + status" not in html
+
+
+def test_admin_escapes_attribute_titles():
+    html = (TEMPLATES / "admin.html").read_text(encoding="utf-8")
+    assert "function escAttr" in html
+    assert 'title="\' + escAttr(' in html
+    assert 'title="\' + esc(log.query_text)' not in html

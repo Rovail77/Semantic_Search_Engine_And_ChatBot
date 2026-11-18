@@ -204,6 +204,10 @@ function esc(s) {
   return d.innerHTML;
 }
 
+function escAttr(s) {
+  return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function starsHtml(val) {
   if (val == null) return '<span class="no-rating">—</span>';
   let s = '';
@@ -269,8 +273,8 @@ function renderLogs(logs) {
     return '<tr>' +
       '<td>' + esc(log.id) + '</td>' +
       '<td>' + formatTime(log.created_at) + '</td>' +
-      '<td class="query-text" title="' + esc(log.query_text) + '">' + esc(log.query_text) + '</td>' +
-      '<td class="reform-text" title="' + esc(reformStr) + '">' + esc(reformStr) + '</td>' +
+      '<td class="query-text" title="' + escAttr(log.query_text) + '">' + esc(log.query_text) + '</td>' +
+      '<td class="reform-text" title="' + escAttr(reformStr) + '">' + esc(reformStr) + '</td>' +
       '<td>' + esc(log.results_count) + '</td>' +
       '<td>' + esc(latency) + '</td>' +
       '<td>' + statusBadge(log.status) + '</td>' +
