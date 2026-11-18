@@ -130,7 +130,7 @@ class ChatBot:
         self.searcher = searcher
         self.sessions: dict[str, ChatSession] = {}
         self._sessions_lock = threading.RLock()
-        self._last_cleanup = 0.0
+        self._last_cleanup = float("-inf")
 
     def _get_or_create_session(self, session_id: str | None) -> ChatSession:
         with self._sessions_lock:

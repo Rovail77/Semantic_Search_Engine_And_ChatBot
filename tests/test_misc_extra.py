@@ -90,7 +90,7 @@ def test_cleanup_expired_throttled(monkeypatch):
     bot._cleanup_expired()
     assert "x" in bot.sessions
 
-    bot._last_cleanup = 0
+    bot._last_cleanup = time.monotonic() - 3601
     bot._cleanup_expired()
     assert "x" not in bot.sessions
 
