@@ -1,3 +1,5 @@
+import pytest
+
 import llm_client
 
 
@@ -121,6 +123,7 @@ def test_chat_once_openai(monkeypatch):
 
 
 def test_openai_client_requires_api_key(monkeypatch):
+    pytest.importorskip("openai")
     monkeypatch.setattr(llm_client, "_client", None)
     monkeypatch.setattr(llm_client, "OPENAI_API_KEY", "")
     try:
