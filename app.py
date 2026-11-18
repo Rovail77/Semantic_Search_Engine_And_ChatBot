@@ -432,13 +432,16 @@ def download_saved_document(doc_id: str):
     if item is None:
         raise HTTPException(404, detail="Документ не найден")
     path, meta = item
+    filename = meta.get("suggested_name") or "document.docx"
+    if not filename.endswith(".docx"):
+        filename = "document.docx"
     return FileResponse(
         path,
         media_type=(
             "application/vnd.openxmlformats-officedocument."
             "wordprocessingml.document"
         ),
-        filename=f"{meta.get('title', 'document')[:60]}.docx",
+        filename=filename,
     )
 
 
